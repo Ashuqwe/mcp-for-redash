@@ -1,0 +1,2 @@
+[console_scripts]
+redash-mcp-server = redash_mcp_server.server:main

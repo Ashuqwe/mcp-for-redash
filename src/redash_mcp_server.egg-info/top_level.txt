@@ -1,0 +1,1 @@
+redash_mcp_server

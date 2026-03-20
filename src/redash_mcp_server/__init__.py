@@ -1,0 +1,1 @@
+"""Redash MCP server package."""

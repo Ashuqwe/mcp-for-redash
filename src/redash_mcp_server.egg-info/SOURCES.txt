@@ -1,0 +1,13 @@
+README.md
+pyproject.toml
+src/redash_mcp_server/__init__.py
+src/redash_mcp_server/__main__.py
+src/redash_mcp_server/config.py
+src/redash_mcp_server/redash_api.py
+src/redash_mcp_server/server.py
+src/redash_mcp_server.egg-info/PKG-INFO
+src/redash_mcp_server.egg-info/SOURCES.txt
+src/redash_mcp_server.egg-info/dependency_links.txt
+src/redash_mcp_server.egg-info/entry_points.txt
+src/redash_mcp_server.egg-info/requires.txt
+src/redash_mcp_server.egg-info/top_level.txt

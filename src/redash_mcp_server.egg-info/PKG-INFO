@@ -1,0 +1,186 @@
+Metadata-Version: 2.4
+Name: redash-mcp-server
+Version: 0.1.0
+Summary: MCP server for Redash built on top of the Redash HTTP API.
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+Requires-Dist: mcp<2,>=1.2.0
+Requires-Dist: requests<3,>=2.31.0
+
+# Redash MCP Server
+
+This is a Python MCP server for Redash. It follows the same idea as [`suthio/redash-mcp`](https://github.com/suthio/redash-mcp), but it is intentionally narrower and built to reuse the Redash setup you already have in this workspace.
+
+## What MCP Is
+
+MCP stands for Model Context Protocol. It is a standard way for an AI client to talk to an external server over a structured protocol instead of ad hoc prompt text.
+
+An MCP setup has three parts:
+
+1. MCP client: Claude Desktop, Codex, Cursor, or another MCP-aware app.
+2. MCP server: your custom process that exposes tools, resources, and optionally prompts.
+3. Backend system: in this case, Redash's HTTP API.
+
+For this project:
+
+1. The MCP client starts this Python process over `stdio`.
+2. The server advertises its capabilities.
+3. The client can call tools like `execute_saved_query`.
+4. The server calls Redash's REST API, gets JSON back, and returns structured data to the client.
+
+## How MCP Works In Practice
+
+At a high level, the protocol flow is:
+
+1. The client launches the server command.
+2. The client sends an `initialize` request and learns what the server supports.
+3. The client asks for `tools/list`, `resources/list`, or both.
+4. When the model chooses an action, the client sends `tools/call`.
+5. The server runs the underlying code and returns structured output.
+
+The official MCP spec defines these request types. Tool invocation is done with `tools/call`, and the server returns a typed result payload rather than free-form terminal output.
+
+Reference:
+
+- [MCP Python SDK](https://py.sdk.modelcontextprotocol.io/)
+- [MCP tools spec](https://modelcontextprotocol.io/specification/2025-06-18/server/tools)
+
+## What This Server Exposes
+
+### Tools
+
+- `list_data_sources`
+- `list_queries`
+- `get_query`
+- `get_dashboard`
+- `execute_saved_query`
+- `execute_adhoc_query`
+
+### Resources
+
+- `redash://data-sources`
+- `redash://query/{query_id}`
+- `redash://dashboard/{slug}`
+
+Tools are for actions. Resources are for read-only, addressable context that a client can fetch by URI.
+
+## Project Layout
+
+```text
+redash_mcp/
+  pyproject.toml
+  README.md
+  .env.example
+  src/redash_mcp_server/
+    config.py
+    redash_api.py
+    server.py
+```
+
+## Configuration
+
+The server reads configuration in this order:
+
+1. `REDASH_URL` and `REDASH_API_KEY`
+2. `/Users/mmt9461/Codex Projects/redash_exports/.redash_config.json`
+3. default URL `https://common-redash.mmt.live`
+
+That means it can reuse the credentials/config pattern you already established for the Redash export scripts.
+
+## Install
+
+```bash
+cd /Users/mmt9461/Codex\ Projects/redash_mcp
+python3 -m pip install -e .
+```
+
+If you prefer not to install it globally, create a venv first.
+
+## Run
+
+```bash
+cd /Users/mmt9461/Codex\ Projects/redash_mcp
+redash-mcp-server
+```
+
+It should be launched by an MCP-aware client, not used interactively in a terminal.
+
+## Example MCP Client Config
+
+For a desktop client that supports command-based MCP servers, the shape is usually:
+
+```json
+{
+  "mcpServers": {
+    "redash": {
+      "command": "python3",
+      "args": [
+        "-m",
+        "redash_mcp_server"
+      ],
+      "cwd": "/Users/mmt9461/Codex Projects/redash_mcp",
+      "env": {
+        "PYTHONPATH": "/Users/mmt9461/Codex Projects/redash_mcp/src",
+        "REDASH_API_KEY": "your_api_key",
+        "REDASH_URL": "https://common-redash.mmt.live"
+      }
+    }
+  }
+}
+```
+
+If the package is installed in editable mode, you can omit `PYTHONPATH`:
+
+```json
+{
+  "mcpServers": {
+    "redash": {
+      "command": "python3",
+      "args": [
+        "-m",
+        "redash_mcp_server"
+      ],
+      "cwd": "/Users/mmt9461/Codex Projects/redash_mcp",
+      "env": {
+        "REDASH_API_KEY": "your_api_key",
+        "REDASH_URL": "https://common-redash.mmt.live"
+      }
+    }
+  }
+}
+```
+
+```json
+{
+  "mcpServers": {
+    "redash": {
+      "command": "redash-mcp-server",
+      "cwd": "/Users/mmt9461/Codex Projects/redash_mcp"
+    }
+  }
+}
+```
+
+## How This Differs From The GitHub Repo
+
+The `suthio/redash-mcp` repo is broader. It includes a larger TypeScript implementation with many more Redash endpoints such as query creation, visualizations, dashboards, alerts, and widgets.
+
+This version is narrower on purpose:
+
+- Python instead of TypeScript
+- Reuses your local Redash configuration pattern
+- Focuses on high-value read/query execution paths first
+- Easier to extend from the code you already own
+
+## Next Extensions
+
+If you want parity with the GitHub repo, the next tools to add are:
+
+1. `create_query`
+2. `update_query`
+3. `archive_query`
+4. `list_dashboards`
+5. visualization CRUD
+6. alert CRUD
+
+The right pattern is to keep adding Redash API methods in `redash_api.py`, then expose them through `@mcp.tool()` in `server.py`.
