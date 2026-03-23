@@ -1,9 +1,17 @@
 from __future__ import annotations
 
+import os
+import tempfile
 import unittest
-from unittest.mock import patch
+from pathlib import Path
+from unittest.mock import Mock, patch
 
-from redash_mcp_server.config import RedashSettings
+import requests
+
+from redash_mcp_server.config import (
+    RedashInstanceSettings,
+    load_settings,
+)
 from redash_mcp_server.redash_api import (
     RedashApiError,
     RedashClient,
@@ -13,6 +21,7 @@ from redash_mcp_server.redash_api import (
     summarize_dashboard,
     summarize_query,
     trim_query_result_rows,
+    validate_read_only_sql,
 )
 
 
@@ -109,16 +118,59 @@ class RedashApiHelpersTest(unittest.TestCase):
         self.assertEqual(payload["returned_count"], 2)
         self.assertEqual(payload["truncated_count"], 1)
 
+    def test_validate_read_only_sql_allows_select_and_blocks_mutations(self) -> None:
+        validate_read_only_sql("SELECT * FROM bookings")
+        validate_read_only_sql("WITH cte AS (SELECT 1) SELECT * FROM cte")
+
+        with self.assertRaises(RedashApiError):
+            validate_read_only_sql("DELETE FROM bookings")
+
+        with self.assertRaises(RedashApiError):
+            validate_read_only_sql("SELECT 1; DROP TABLE users")
+
+
+class ConfigSecurityTest(unittest.TestCase):
+    def test_load_settings_supports_multiple_instances(self) -> None:
+        config_body = """
+        {
+          "default_instance": "prod",
+          "instances": {
+            "prod": {
+              "base_url": "https://prod.example.com",
+              "api_key": "prod-key"
+            },
+            "staging": {
+              "base_url": "https://staging.example.com",
+              "api_key": "staging-key"
+            }
+          }
+        }
+        """
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config_path = Path(temp_dir) / "config.json"
+            config_path.write_text(config_body)
+            env = {
+                "REDASH_MCP_CONFIG": str(config_path),
+            }
+            with patch.dict(os.environ, env, clear=True):
+                settings = load_settings()
+
+        self.assertEqual(settings.default_instance, "prod")
+        self.assertEqual(sorted(settings.instances), ["prod", "staging"])
+        self.assertTrue(settings.read_only)
+        self.assertFalse(settings.allow_adhoc_sql)
+
 
 class RedashClientCompatibilityTest(unittest.TestCase):
     def setUp(self) -> None:
-        settings = RedashSettings(
-            base_url="https://example.com",
-            api_key="test-key",
+        self.client = RedashClient(
+            RedashInstanceSettings(
+                name="default",
+                base_url="https://example.com",
+                api_key="test-key",
+            ),
             timeout_seconds=30,
-            max_rows=100,
         )
-        self.client = RedashClient(settings)
 
     def test_list_my_dashboards_falls_back_when_endpoint_missing(self) -> None:
         dashboard_pages = [
@@ -163,6 +215,23 @@ class RedashClientCompatibilityTest(unittest.TestCase):
                 self.client.get_visualization(123)
 
         self.assertIn("non-JSON response", str(context.exception))
+
+    def test_request_error_sanitizes_redash_response_body(self) -> None:
+        response = Mock()
+        response.status_code = 403
+        response.text = "database password is secret"
+        response.content = b"database password is secret"
+        response.headers = {"content-type": "text/plain"}
+        response.raise_for_status.side_effect = requests.HTTPError("403 Client Error")
+
+        with patch.object(self.client.session, "request", return_value=response):
+            with self.assertRaises(RedashApiError) as context:
+                self.client._request("GET", "/api/queries")
+
+        message = str(context.exception)
+        self.assertIn("status 403", message)
+        self.assertIn("GET /api/queries", message)
+        self.assertNotIn("database password is secret", message)
 
 
 if __name__ == "__main__":

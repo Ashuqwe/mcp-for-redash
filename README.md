@@ -2,7 +2,7 @@
 
 Connect Codex, Claude Code, Cursor, and other MCP-compatible AI tools to Redash.
 
-This project is a local MCP server written in Python. It gives your AI assistant a safe, structured way to list Redash assets, run queries, inspect dashboards, manage alerts, and work with other Redash objects through the Redash API.
+This project is a local MCP server written in Python. It gives your AI assistant a structured way to list Redash assets, run approved read-only queries, inspect dashboards, manage alerts, and work with other Redash objects through the Redash API.
 
 ## Security First
 
@@ -16,7 +16,7 @@ This repository does not need your Redash URL or API key to be committed to GitH
 You can provide credentials in either of these ways:
 
 - environment variables such as `REDASH_URL` and `REDASH_API_KEY`
-- a local JSON config file that is not committed to GitHub
+- a local JSON config file that is not committed to GitHub, including multiple named Redash instances
 
 ## In Plain English
 
@@ -35,7 +35,7 @@ With this MCP:
   - "Show my favorite Redash queries"
   - "Run query 133822 for the last 7 days"
   - "List all dashboard tags"
-  - "Create an alert when failures go above 50"
+  - "Show me which Redash instances are available"
 
 In short: this makes your AI assistant act more like a Redash power user.
 
@@ -63,6 +63,13 @@ This server currently supports:
 - Visualizations: inspect, create, update, delete
 - Widgets: list, inspect, create, update, delete
 - Destinations: list alert destinations
+
+By default, the server starts in a hardened enterprise mode:
+
+- `read_only` is enabled by default
+- ad hoc SQL is disabled by default
+- query execution is restricted to read-only SQL
+- Redash API error bodies are not echoed back verbatim
 
 ## Prerequisites
 
@@ -111,6 +118,9 @@ Optional:
 ```bash
 export REDASH_TIMEOUT_SECONDS="300"
 export REDASH_MCP_MAX_ROWS="200"
+export REDASH_MCP_READ_ONLY="true"
+export REDASH_MCP_ALLOW_ADHOC_SQL="false"
+export REDASH_MCP_DEFAULT_INSTANCE="default"
 ```
 
 You can copy `.env.example` as a reference, but do not commit your real `.env` file.
@@ -128,8 +138,19 @@ Then edit it with your own values:
 
 ```json
 {
-  "base_url": "https://your-redash.example.com",
-  "api_key": "YOUR_REDASH_API_KEY"
+  "default_instance": "prod",
+  "read_only": true,
+  "allow_adhoc_sql": false,
+  "instances": {
+    "prod": {
+      "base_url": "https://your-redash.example.com",
+      "api_key": "YOUR_REDASH_API_KEY"
+    },
+    "staging": {
+      "base_url": "https://your-staging-redash.example.com",
+      "api_key": "YOUR_STAGING_REDASH_API_KEY"
+    }
+  }
 }
 ```
 
@@ -153,6 +174,8 @@ codex mcp add redash \
   --env REDASH_API_KEY=YOUR_REDASH_API_KEY \
   --env REDASH_TIMEOUT_SECONDS=300 \
   --env REDASH_MCP_MAX_ROWS=200 \
+  --env REDASH_MCP_READ_ONLY=true \
+  --env REDASH_MCP_ALLOW_ADHOC_SQL=false \
   -- /ABSOLUTE/PATH/TO/mcp-for-redash/.venv/bin/python -m redash_mcp_server
 ```
 
@@ -175,6 +198,8 @@ REDASH_URL = "https://your-redash.example.com"
 REDASH_API_KEY = "YOUR_REDASH_API_KEY"
 REDASH_TIMEOUT_SECONDS = "300"
 REDASH_MCP_MAX_ROWS = "200"
+REDASH_MCP_READ_ONLY = "true"
+REDASH_MCP_ALLOW_ADHOC_SQL = "false"
 ```
 
 ## How To Connect It To Claude Code
@@ -189,6 +214,8 @@ claude mcp add --transport stdio \
   --env REDASH_API_KEY=YOUR_REDASH_API_KEY \
   --env REDASH_TIMEOUT_SECONDS=300 \
   --env REDASH_MCP_MAX_ROWS=200 \
+  --env REDASH_MCP_READ_ONLY=true \
+  --env REDASH_MCP_ALLOW_ADHOC_SQL=false \
   redash \
   -- /ABSOLUTE/PATH/TO/mcp-for-redash/.venv/bin/python -m redash_mcp_server
 ```
@@ -218,7 +245,9 @@ Inside Claude Code, you can also use:
         "REDASH_URL": "https://your-redash.example.com",
         "REDASH_API_KEY": "YOUR_REDASH_API_KEY",
         "REDASH_TIMEOUT_SECONDS": "300",
-        "REDASH_MCP_MAX_ROWS": "200"
+        "REDASH_MCP_MAX_ROWS": "200",
+        "REDASH_MCP_READ_ONLY": "true",
+        "REDASH_MCP_ALLOW_ADHOC_SQL": "false"
       }
     }
   }
@@ -241,7 +270,9 @@ Example:
         "REDASH_URL": "https://your-redash.example.com",
         "REDASH_API_KEY": "YOUR_REDASH_API_KEY",
         "REDASH_TIMEOUT_SECONDS": "300",
-        "REDASH_MCP_MAX_ROWS": "200"
+        "REDASH_MCP_MAX_ROWS": "200",
+        "REDASH_MCP_READ_ONLY": "true",
+        "REDASH_MCP_ALLOW_ADHOC_SQL": "false"
       }
     }
   }
@@ -252,7 +283,15 @@ If your client supports only HTTP MCP servers, this repo is not the right fit ou
 
 ## How To Use It Once Connected
 
-This MCP is optimized to be summary-first. List tools and most read tools return compact metadata by default, and detailed objects are available only when the client explicitly asks for `full=true`. Query result rows are also capped by `REDASH_MCP_MAX_ROWS`, which defaults to `200` to keep token usage predictable on lower-tier plans.
+This MCP is optimized to be summary-first. List tools and most read tools return compact metadata by default, and detailed objects are available only when the client explicitly asks for `full=true`. Query result rows are capped by `REDASH_MCP_MAX_ROWS`, which defaults to `200` to keep token usage predictable on lower-tier plans.
+
+Every tool also accepts an optional `instance` name when you configure multiple Redash environments. Use `list_redash_instances` first if you want the AI to choose from your configured instances.
+
+The default security posture is:
+
+- `REDASH_MCP_READ_ONLY=true`
+- `REDASH_MCP_ALLOW_ADHOC_SQL=false`
+- only read-only SQL is accepted for query creation, query updates, saved-query execution, and ad hoc execution
 
 Once the MCP is installed, you usually do not call tools manually. You just ask your AI assistant what you want.
 
@@ -260,10 +299,11 @@ Examples:
 
 - "List my favorite Redash dashboards."
 - "Show me the query tags we use most."
+- "List the configured Redash instances."
+- "Run query 133822 on the prod instance for the last 14 days."
 - "Run query 133822 for the last 14 days."
 - "Find the dashboard called revenue-overview and summarize what it contains."
-- "Create an alert for query 12345 when error_count is greater than 20."
-- "Add query 67890 to my favorites."
+- "If write actions are disabled, explain what is blocked and why."
 
 ## Good Prompts For Non-Technical Users
 
@@ -272,6 +312,7 @@ If you do not know Redash well, use prompts like:
 - "Find the dashboard related to flight cancellations and explain it simply."
 - "Show me the queries I use most often."
 - "Run the sales query for last week and explain the result in simple terms."
+- "Show me which Redash instance I should use for production reports."
 - "What alerts already exist for failed bookings?"
 - "Which dashboard tags do we use for marketing?"
 
@@ -280,6 +321,7 @@ If you do not know Redash well, use prompts like:
 This MCP exposes a fairly broad tool surface. The main groups are:
 
 - Query tools
+  - `list_redash_instances`
   - `list_queries`
   - `list_my_queries`
   - `list_recent_queries`
@@ -334,6 +376,7 @@ This MCP exposes a fairly broad tool surface. The main groups are:
 
 This MCP also exposes a few resources:
 
+- `redash://instances`
 - `redash://data-sources`
 - `redash://query/{query_id}`
 - `redash://dashboard/{slug}`
@@ -344,10 +387,13 @@ Resources are useful when a client wants read-only context by URI instead of cal
 
 - This project uses user-supplied local configuration only.
 - It supports either environment variables or a local JSON config file.
+- It supports multiple named Redash instances through the JSON config file.
+- It defaults to read-only mode and blocks ad hoc SQL until explicitly enabled.
+- It only allows read-only SQL, which prevents this MCP from being used to create, update, delete, drop, or truncate tables through query execution.
 - Some Redash deployments differ slightly from the endpoints used by the reference TypeScript project.
 - This server includes a compatibility fallback for `list_my_dashboards` when `/api/dashboards/my` is missing.
 - On the Redash deployment used during development, `/api/visualizations/{id}` returned HTML instead of JSON. This server now raises a clear error in that case instead of returning broken data.
-- Mutating endpoints are implemented, but you should test them on your own Redash instance carefully before relying on them in production workflows.
+- Mutating endpoints are implemented but disabled by default through `REDASH_MCP_READ_ONLY=true`.
 
 ## Troubleshooting
 
@@ -365,6 +411,7 @@ Check:
 
 - `REDASH_URL`
 - `REDASH_API_KEY`
+- `REDASH_MCP_DEFAULT_INSTANCE`
 - whether that API key has permission to read or modify the object you are targeting
 
 ### Error: the AI says the MCP server is unavailable

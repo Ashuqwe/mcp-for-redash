@@ -1,15 +1,36 @@
 from __future__ import annotations
 
+import re
 import time
 from typing import Any
 
 import requests
 
-from .config import RedashSettings
+from .config import RedashInstanceSettings
 
 
 DEFAULT_LIST_LIMIT = 25
 DEFAULT_TEXT_PREVIEW_CHARS = 240
+READ_ONLY_SQL_PREFIXES = ("select", "with")
+DANGEROUS_SQL_PATTERNS = (
+    r"\binsert\b",
+    r"\bupdate\b",
+    r"\bdelete\b",
+    r"\bdrop\b",
+    r"\btruncate\b",
+    r"\balter\b",
+    r"\bcreate\b",
+    r"\breplace\b",
+    r"\bmerge\b",
+    r"\bgrant\b",
+    r"\brevoke\b",
+    r"\bcall\b",
+    r"\bexec(?:ute)?\b",
+    r"\bcopy\b",
+    r"\bunload\b",
+    r"\bvacuum\b",
+    r"\banalyze\b",
+)
 
 
 class RedashApiError(RuntimeError):
@@ -23,8 +44,14 @@ class RedashApiError(RuntimeError):
 class RedashClient:
     """Small Redash API client for the MCP server."""
 
-    def __init__(self, settings: RedashSettings) -> None:
+    def __init__(
+        self,
+        settings: RedashInstanceSettings,
+        *,
+        timeout_seconds: int = 300,
+    ) -> None:
         self.settings = settings
+        self.timeout_seconds = timeout_seconds
         self.session = requests.Session()
         self.session.headers.update(
             {
@@ -37,17 +64,18 @@ class RedashClient:
         response = self.session.request(
             method=method,
             url=f"{self.settings.base_url}{path}",
-            timeout=self.settings.timeout_seconds,
+            timeout=self.timeout_seconds,
             **kwargs,
         )
         try:
             response.raise_for_status()
         except requests.HTTPError as exc:
-            body = response.text.strip()
-            message = f"{exc}"
-            if body:
-                message = f"{message}\nResponse body: {body}"
-            raise RedashApiError(message, status_code=response.status_code) from exc
+            status_code = response.status_code
+            raise RedashApiError(
+                f"Redash API request failed with status {status_code} for "
+                f"{method.upper()} {path}.",
+                status_code=status_code,
+            ) from exc
 
         if not response.content:
             return None
@@ -513,7 +541,7 @@ class RedashClient:
             )
 
         job_id = job["id"]
-        deadline = time.monotonic() + self.settings.timeout_seconds
+        deadline = time.monotonic() + self.timeout_seconds
         while time.monotonic() < deadline:
             job_payload = self._request("GET", f"/api/jobs/{job_id}").get("job", {})
             status = job_payload.get("status")
@@ -532,7 +560,7 @@ class RedashClient:
             time.sleep(2)
         raise RedashApiError(
             f"Timed out waiting for Redash job {job_id} after "
-            f"{self.settings.timeout_seconds} seconds."
+            f"{self.timeout_seconds} seconds."
         )
 
     def _paginated_get(
@@ -608,6 +636,43 @@ def render_sql_template(sql: str, params: dict[str, Any]) -> str:
             continue
         rendered = rendered.replace(f"{{{{{key}}}}}", str(value))
     return rendered
+
+
+def sanitize_sql_for_validation(sql: str) -> str:
+    without_block_comments = re.sub(r"/\*.*?\*/", " ", sql, flags=re.DOTALL)
+    without_line_comments = re.sub(
+        r"--[^\n\r]*",
+        " ",
+        without_block_comments,
+        flags=re.MULTILINE,
+    )
+    without_single_quotes = re.sub(r"'(?:''|[^'])*'", "''", without_line_comments)
+    without_double_quotes = re.sub(r'"(?:""|[^"])*"', '""', without_single_quotes)
+    return " ".join(without_double_quotes.strip().split()).lower()
+
+
+def validate_read_only_sql(sql: str) -> None:
+    normalized = sanitize_sql_for_validation(sql)
+    if not normalized:
+        raise RedashApiError("SQL must not be empty.")
+
+    statements = [part.strip() for part in normalized.split(";") if part.strip()]
+    if len(statements) != 1:
+        raise RedashApiError(
+            "Only a single read-only SQL statement is allowed."
+        )
+
+    statement = statements[0]
+    if not statement.startswith(READ_ONLY_SQL_PREFIXES):
+        raise RedashApiError(
+            "Only read-only SELECT or WITH queries are allowed."
+        )
+
+    for pattern in DANGEROUS_SQL_PATTERNS:
+        if re.search(pattern, statement):
+            raise RedashApiError(
+                "Mutating SQL statements are blocked by this MCP."
+            )
 
 
 def _drop_none_values(payload: dict[str, Any]) -> dict[str, Any]:

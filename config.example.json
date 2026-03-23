@@ -1,0 +1,15 @@
+{
+  "default_instance": "prod",
+  "read_only": true,
+  "allow_adhoc_sql": false,
+  "instances": {
+    "prod": {
+      "base_url": "https://your-redash.example.com",
+      "api_key": "YOUR_REDASH_API_KEY"
+    },
+    "staging": {
+      "base_url": "https://your-staging-redash.example.com",
+      "api_key": "YOUR_STAGING_REDASH_API_KEY"
+    }
+  }
+}
