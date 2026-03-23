@@ -8,6 +8,10 @@ import requests
 from .config import RedashSettings
 
 
+DEFAULT_LIST_LIMIT = 25
+DEFAULT_TEXT_PREVIEW_CHARS = 240
+
+
 class RedashApiError(RuntimeError):
     """Raised when Redash returns an error or an unexpected payload."""
 
@@ -631,3 +635,174 @@ def trim_query_result_rows(payload: dict[str, Any], max_rows: int) -> dict[str, 
     trimmed_query_result["data"] = trimmed_data
     trimmed["query_result"] = trimmed_query_result
     return trimmed
+
+
+def truncate_text(value: Any, max_chars: int = DEFAULT_TEXT_PREVIEW_CHARS) -> str | None:
+    if not isinstance(value, str):
+        return None
+    compact = " ".join(value.split())
+    if len(compact) <= max_chars:
+        return compact
+    return compact[: max_chars - 3] + "..."
+
+
+def summarize_collection(
+    items: list[dict[str, Any]],
+    *,
+    item_mapper,
+    limit: int = DEFAULT_LIST_LIMIT,
+) -> dict[str, Any]:
+    safe_limit = max(limit, 1)
+    sliced = items[:safe_limit]
+    return {
+        "count": len(items),
+        "returned_count": len(sliced),
+        "truncated_count": max(len(items) - len(sliced), 0),
+        "results": [item_mapper(item) for item in sliced],
+    }
+
+
+def summarize_paginated_collection(
+    payload: dict[str, Any],
+    *,
+    item_mapper,
+    limit: int | None = None,
+) -> dict[str, Any]:
+    results = payload.get("results")
+    if not isinstance(results, list):
+        return payload
+    sliced = results[: max(limit or len(results), 1)]
+    return {
+        "count": payload.get("count", len(results)),
+        "page": payload.get("page", 1),
+        "page_size": payload.get("page_size", payload.get("pageSize", len(results))),
+        "returned_count": len(sliced),
+        "truncated_count": max(len(results) - len(sliced), 0),
+        "results": [item_mapper(item) for item in sliced if isinstance(item, dict)],
+    }
+
+
+def summarize_data_source(item: dict[str, Any]) -> dict[str, Any]:
+    return _drop_none_values(
+        {
+            "id": item.get("id"),
+            "name": item.get("name"),
+            "type": item.get("type"),
+            "paused": item.get("paused"),
+            "view_only": item.get("view_only"),
+            "syntax": item.get("syntax"),
+        }
+    )
+
+
+def summarize_visualization(item: dict[str, Any]) -> dict[str, Any]:
+    return _drop_none_values(
+        {
+            "id": item.get("id"),
+            "name": item.get("name"),
+            "type": item.get("type"),
+            "query_id": item.get("query_id"),
+            "description": truncate_text(item.get("description")),
+        }
+    )
+
+
+def summarize_query(item: dict[str, Any], *, include_preview: bool = False) -> dict[str, Any]:
+    visualizations = item.get("visualizations")
+    summarized_visualizations = None
+    if isinstance(visualizations, list):
+        summarized_visualizations = [
+            summarize_visualization(viz) for viz in visualizations if isinstance(viz, dict)
+        ]
+
+    payload = {
+        "id": item.get("id"),
+        "name": item.get("name"),
+        "description": truncate_text(item.get("description")),
+        "data_source_id": item.get("data_source_id"),
+        "is_archived": item.get("is_archived"),
+        "is_draft": item.get("is_draft"),
+        "is_favorite": item.get("is_favorite"),
+        "tags": item.get("tags"),
+        "updated_at": item.get("updated_at"),
+        "runtime": item.get("runtime"),
+        "query_length_chars": len(item.get("query", "")) if isinstance(item.get("query"), str) else None,
+        "query_preview": truncate_text(item.get("query"), 400) if include_preview else None,
+        "visualizations": summarized_visualizations,
+    }
+    return _drop_none_values(payload)
+
+
+def summarize_dashboard(item: dict[str, Any], *, max_widgets: int = 10) -> dict[str, Any]:
+    widgets = item.get("widgets")
+    summarized_widgets = None
+    truncated_widgets_count = None
+    if isinstance(widgets, list):
+        sliced = widgets[:max(max_widgets, 1)]
+        summarized_widgets = [
+            summarize_widget(widget) for widget in sliced if isinstance(widget, dict)
+        ]
+        truncated_widgets_count = max(len(widgets) - len(sliced), 0)
+
+    return _drop_none_values(
+        {
+            "id": item.get("id"),
+            "name": item.get("name"),
+            "slug": item.get("slug"),
+            "tags": item.get("tags"),
+            "is_archived": item.get("is_archived"),
+            "is_draft": item.get("is_draft"),
+            "dashboard_filters_enabled": item.get("dashboard_filters_enabled"),
+            "updated_at": item.get("updated_at"),
+            "widgets_count": len(widgets) if isinstance(widgets, list) else None,
+            "truncated_widgets_count": truncated_widgets_count,
+            "widgets": summarized_widgets,
+        }
+    )
+
+
+def summarize_alert(item: dict[str, Any]) -> dict[str, Any]:
+    options = item.get("options")
+    if not isinstance(options, dict):
+        options = {}
+    return _drop_none_values(
+        {
+            "id": item.get("id"),
+            "name": item.get("name"),
+            "query_id": item.get("query_id"),
+            "state": item.get("state"),
+            "last_triggered_at": item.get("last_triggered_at"),
+            "rearm": item.get("rearm"),
+            "muted": options.get("muted"),
+            "column": options.get("column"),
+            "op": options.get("op"),
+            "value": options.get("value"),
+        }
+    )
+
+
+def summarize_widget(item: dict[str, Any]) -> dict[str, Any]:
+    visualization = item.get("visualization")
+    return _drop_none_values(
+        {
+            "id": item.get("id"),
+            "dashboard_id": item.get("dashboard_id"),
+            "visualization_id": item.get("visualization_id")
+            or (visualization.get("id") if isinstance(visualization, dict) else None),
+            "width": item.get("width"),
+            "text_preview": truncate_text(item.get("text")),
+            "visualization": summarize_visualization(visualization)
+            if isinstance(visualization, dict)
+            else None,
+        }
+    )
+
+
+def summarize_destination(item: dict[str, Any]) -> dict[str, Any]:
+    return _drop_none_values(
+        {
+            "id": item.get("id"),
+            "name": item.get("name"),
+            "type": item.get("type"),
+        }
+    )

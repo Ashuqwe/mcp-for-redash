@@ -110,7 +110,7 @@ Optional:
 
 ```bash
 export REDASH_TIMEOUT_SECONDS="300"
-export REDASH_MCP_MAX_ROWS="1000"
+export REDASH_MCP_MAX_ROWS="200"
 ```
 
 You can copy `.env.example` as a reference, but do not commit your real `.env` file.
@@ -152,7 +152,7 @@ codex mcp add redash \
   --env REDASH_URL=https://your-redash.example.com \
   --env REDASH_API_KEY=YOUR_REDASH_API_KEY \
   --env REDASH_TIMEOUT_SECONDS=300 \
-  --env REDASH_MCP_MAX_ROWS=1000 \
+  --env REDASH_MCP_MAX_ROWS=200 \
   -- /ABSOLUTE/PATH/TO/mcp-for-redash/.venv/bin/python -m redash_mcp_server
 ```
 
@@ -174,7 +174,7 @@ args = ["-m", "redash_mcp_server"]
 REDASH_URL = "https://your-redash.example.com"
 REDASH_API_KEY = "YOUR_REDASH_API_KEY"
 REDASH_TIMEOUT_SECONDS = "300"
-REDASH_MCP_MAX_ROWS = "1000"
+REDASH_MCP_MAX_ROWS = "200"
 ```
 
 ## How To Connect It To Claude Code
@@ -188,7 +188,7 @@ claude mcp add --transport stdio \
   --env REDASH_URL=https://your-redash.example.com \
   --env REDASH_API_KEY=YOUR_REDASH_API_KEY \
   --env REDASH_TIMEOUT_SECONDS=300 \
-  --env REDASH_MCP_MAX_ROWS=1000 \
+  --env REDASH_MCP_MAX_ROWS=200 \
   redash \
   -- /ABSOLUTE/PATH/TO/mcp-for-redash/.venv/bin/python -m redash_mcp_server
 ```
@@ -218,7 +218,7 @@ Inside Claude Code, you can also use:
         "REDASH_URL": "https://your-redash.example.com",
         "REDASH_API_KEY": "YOUR_REDASH_API_KEY",
         "REDASH_TIMEOUT_SECONDS": "300",
-        "REDASH_MCP_MAX_ROWS": "1000"
+        "REDASH_MCP_MAX_ROWS": "200"
       }
     }
   }
@@ -241,7 +241,7 @@ Example:
         "REDASH_URL": "https://your-redash.example.com",
         "REDASH_API_KEY": "YOUR_REDASH_API_KEY",
         "REDASH_TIMEOUT_SECONDS": "300",
-        "REDASH_MCP_MAX_ROWS": "1000"
+        "REDASH_MCP_MAX_ROWS": "200"
       }
     }
   }
@@ -251,6 +251,8 @@ Example:
 If your client supports only HTTP MCP servers, this repo is not the right fit out of the box. This server uses `stdio`.
 
 ## How To Use It Once Connected
+
+This MCP is optimized to be summary-first. List tools and most read tools return compact metadata by default, and detailed objects are available only when the client explicitly asks for `full=true`. Query result rows are also capped by `REDASH_MCP_MAX_ROWS`, which defaults to `200` to keep token usage predictable on lower-tier plans.
 
 Once the MCP is installed, you usually do not call tools manually. You just ask your AI assistant what you want.
 

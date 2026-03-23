@@ -5,7 +5,20 @@ from typing import Any
 from mcp.server.fastmcp import FastMCP
 
 from .config import load_settings
-from .redash_api import RedashClient, trim_query_result_rows
+from .redash_api import (
+    DEFAULT_LIST_LIMIT,
+    RedashClient,
+    summarize_alert,
+    summarize_collection,
+    summarize_dashboard,
+    summarize_data_source,
+    summarize_destination,
+    summarize_paginated_collection,
+    summarize_query,
+    summarize_visualization,
+    summarize_widget,
+    trim_query_result_rows,
+)
 
 
 settings = load_settings()
@@ -32,7 +45,11 @@ def _normalize_parameters(
 @mcp.tool()
 def list_data_sources() -> list[dict[str, Any]]:
     """List available Redash data sources."""
-    return client.list_data_sources()
+    return summarize_collection(
+        client.list_data_sources(),
+        item_mapper=summarize_data_source,
+        limit=DEFAULT_LIST_LIMIT,
+    )
 
 
 @mcp.tool()
@@ -40,36 +57,52 @@ def list_queries(
     search: str | None = None,
     page: int = 1,
     page_size: int = 25,
+    full: bool = False,
 ) -> dict[str, Any]:
     """List Redash queries with optional search text."""
-    return client.list_queries(search=search, page=page, page_size=page_size)
+    payload = client.list_queries(search=search, page=page, page_size=page_size)
+    if full:
+        return payload
+    return summarize_paginated_collection(payload, item_mapper=summarize_query)
 
 
 @mcp.tool()
 def list_my_queries(
     page: int = 1,
     page_size: int = 25,
+    full: bool = False,
 ) -> dict[str, Any]:
     """List queries owned by the current Redash user."""
-    return client.list_my_queries(page=page, page_size=page_size)
+    payload = client.list_my_queries(page=page, page_size=page_size)
+    if full:
+        return payload
+    return summarize_paginated_collection(payload, item_mapper=summarize_query)
 
 
 @mcp.tool()
 def list_recent_queries(
     page: int = 1,
     page_size: int = 25,
+    full: bool = False,
 ) -> dict[str, Any]:
     """List recent Redash queries."""
-    return client.list_recent_queries(page=page, page_size=page_size)
+    payload = client.list_recent_queries(page=page, page_size=page_size)
+    if full:
+        return payload
+    return summarize_paginated_collection(payload, item_mapper=summarize_query)
 
 
 @mcp.tool()
 def list_favorite_queries(
     page: int = 1,
     page_size: int = 25,
+    full: bool = False,
 ) -> dict[str, Any]:
     """List favorite Redash queries."""
-    return client.list_favorite_queries(page=page, page_size=page_size)
+    payload = client.list_favorite_queries(page=page, page_size=page_size)
+    if full:
+        return payload
+    return summarize_paginated_collection(payload, item_mapper=summarize_query)
 
 
 @mcp.tool()
@@ -79,9 +112,12 @@ def get_query_tags() -> dict[str, Any]:
 
 
 @mcp.tool()
-def get_query(query_id: int) -> dict[str, Any]:
+def get_query(query_id: int, full: bool = False) -> dict[str, Any]:
     """Fetch a saved Redash query definition."""
-    return client.get_query(query_id)
+    payload = client.get_query(query_id)
+    if full:
+        return payload
+    return summarize_query(payload, include_preview=True)
 
 
 @mcp.tool()
@@ -162,27 +198,39 @@ def fork_query(query_id: int) -> dict[str, Any]:
 def list_dashboards(
     page: int = 1,
     page_size: int = 25,
+    full: bool = False,
 ) -> dict[str, Any]:
     """List Redash dashboards."""
-    return client.list_dashboards(page=page, page_size=page_size)
+    payload = client.list_dashboards(page=page, page_size=page_size)
+    if full:
+        return payload
+    return summarize_paginated_collection(payload, item_mapper=summarize_dashboard)
 
 
 @mcp.tool()
 def list_my_dashboards(
     page: int = 1,
     page_size: int = 25,
+    full: bool = False,
 ) -> dict[str, Any]:
     """List dashboards owned by the current Redash user."""
-    return client.list_my_dashboards(page=page, page_size=page_size)
+    payload = client.list_my_dashboards(page=page, page_size=page_size)
+    if full:
+        return payload
+    return summarize_paginated_collection(payload, item_mapper=summarize_dashboard)
 
 
 @mcp.tool()
 def list_favorite_dashboards(
     page: int = 1,
     page_size: int = 25,
+    full: bool = False,
 ) -> dict[str, Any]:
     """List favorite Redash dashboards."""
-    return client.list_favorite_dashboards(page=page, page_size=page_size)
+    payload = client.list_favorite_dashboards(page=page, page_size=page_size)
+    if full:
+        return payload
+    return summarize_paginated_collection(payload, item_mapper=summarize_dashboard)
 
 
 @mcp.tool()
@@ -245,21 +293,34 @@ def remove_dashboard_favorite(dashboard_id: int) -> dict[str, Any]:
 
 
 @mcp.tool()
-def get_dashboard(slug: str) -> dict[str, Any]:
+def get_dashboard(
+    slug: str,
+    full: bool = False,
+    max_widgets: int = 10,
+) -> dict[str, Any]:
     """Fetch a Redash dashboard by slug."""
-    return client.get_dashboard(slug)
+    payload = client.get_dashboard(slug)
+    if full:
+        return payload
+    return summarize_dashboard(payload, max_widgets=max_widgets)
 
 
 @mcp.tool()
-def list_alerts() -> list[dict[str, Any]]:
+def list_alerts(full: bool = False) -> list[dict[str, Any]] | dict[str, Any]:
     """List Redash alerts."""
-    return client.list_alerts()
+    payload = client.list_alerts()
+    if full:
+        return payload
+    return summarize_collection(payload, item_mapper=summarize_alert)
 
 
 @mcp.tool()
-def get_alert(alert_id: int) -> dict[str, Any]:
+def get_alert(alert_id: int, full: bool = False) -> dict[str, Any]:
     """Fetch a Redash alert by id."""
-    return client.get_alert(alert_id)
+    payload = client.get_alert(alert_id)
+    if full:
+        return payload
+    return summarize_alert(payload)
 
 
 @mcp.tool()
@@ -336,9 +397,12 @@ def remove_alert_subscription(
 
 
 @mcp.tool()
-def get_visualization(visualization_id: int) -> dict[str, Any]:
+def get_visualization(visualization_id: int, full: bool = False) -> dict[str, Any]:
     """Fetch a Redash visualization by id."""
-    return client.get_visualization(visualization_id)
+    payload = client.get_visualization(visualization_id)
+    if full:
+        return payload
+    return summarize_visualization(payload)
 
 
 @mcp.tool()
@@ -384,15 +448,21 @@ def delete_visualization(visualization_id: int) -> dict[str, Any]:
 
 
 @mcp.tool()
-def list_widgets() -> list[dict[str, Any]]:
+def list_widgets(full: bool = False) -> list[dict[str, Any]] | dict[str, Any]:
     """List Redash widgets."""
-    return client.list_widgets()
+    payload = client.list_widgets()
+    if full:
+        return payload
+    return summarize_collection(payload, item_mapper=summarize_widget)
 
 
 @mcp.tool()
-def get_widget(widget_id: int) -> dict[str, Any]:
+def get_widget(widget_id: int, full: bool = False) -> dict[str, Any]:
     """Fetch a Redash widget by id."""
-    return client.get_widget(widget_id)
+    payload = client.get_widget(widget_id)
+    if full:
+        return payload
+    return summarize_widget(payload)
 
 
 @mcp.tool()
@@ -438,9 +508,12 @@ def delete_widget(widget_id: int) -> dict[str, Any]:
 
 
 @mcp.tool()
-def list_destinations() -> list[dict[str, Any]]:
+def list_destinations(full: bool = False) -> list[dict[str, Any]] | dict[str, Any]:
     """List Redash destinations."""
-    return client.list_destinations()
+    payload = client.list_destinations()
+    if full:
+        return payload
+    return summarize_collection(payload, item_mapper=summarize_destination)
 
 
 @mcp.tool()
@@ -484,19 +557,23 @@ def execute_adhoc_query(
 @mcp.resource("redash://data-sources")
 def data_sources_resource() -> list[dict[str, Any]]:
     """Expose the Redash data source catalog as a resource."""
-    return client.list_data_sources()
+    return summarize_collection(
+        client.list_data_sources(),
+        item_mapper=summarize_data_source,
+        limit=DEFAULT_LIST_LIMIT,
+    )
 
 
 @mcp.resource("redash://query/{query_id}")
 def query_resource(query_id: str) -> dict[str, Any]:
     """Expose a saved Redash query as a resource."""
-    return client.get_query(int(query_id))
+    return summarize_query(client.get_query(int(query_id)), include_preview=True)
 
 
 @mcp.resource("redash://dashboard/{slug}")
 def dashboard_resource(slug: str) -> dict[str, Any]:
     """Expose a Redash dashboard as a resource."""
-    return client.get_dashboard(slug)
+    return summarize_dashboard(client.get_dashboard(slug))
 
 
 def main() -> None:

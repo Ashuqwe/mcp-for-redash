@@ -15,7 +15,7 @@ class RedashSettings:
     base_url: str
     api_key: str
     timeout_seconds: int = 300
-    max_rows: int = 1000
+    max_rows: int = 200
 
 
 def load_json_file(path: Path) -> dict[str, Any]:
@@ -51,7 +51,7 @@ def load_settings() -> RedashSettings:
         )
 
     timeout_seconds = int(os.environ.get("REDASH_TIMEOUT_SECONDS", "300"))
-    max_rows = int(os.environ.get("REDASH_MCP_MAX_ROWS", "1000"))
+    max_rows = int(os.environ.get("REDASH_MCP_MAX_ROWS", "200"))
     return RedashSettings(
         base_url=base_url,
         api_key=api_key,

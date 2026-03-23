@@ -9,6 +9,9 @@ from redash_mcp_server.redash_api import (
     RedashClient,
     _drop_none_values,
     render_sql_template,
+    summarize_collection,
+    summarize_dashboard,
+    summarize_query,
     trim_query_result_rows,
 )
 
@@ -65,6 +68,46 @@ class RedashApiHelpersTest(unittest.TestCase):
         rows = trimmed["query_result"]["data"]["rows"]
         self.assertEqual(rows, [{"id": 1}, {"id": 2}])
         self.assertEqual(trimmed["query_result"]["data"]["truncated_row_count"], 1)
+
+    def test_summarize_query_hides_full_sql_by_default(self) -> None:
+        payload = summarize_query(
+            {
+                "id": 42,
+                "name": "Revenue",
+                "query": "select * from really_large_table where country = 'IN'",
+                "description": "Revenue query used by the finance team.",
+            }
+        )
+        self.assertEqual(payload["id"], 42)
+        self.assertIn("query_length_chars", payload)
+        self.assertNotIn("query_preview", payload)
+
+    def test_summarize_dashboard_limits_widget_list(self) -> None:
+        payload = summarize_dashboard(
+            {
+                "id": 7,
+                "slug": "ops-overview",
+                "widgets": [
+                    {"id": 1, "width": 1},
+                    {"id": 2, "width": 2},
+                    {"id": 3, "width": 3},
+                ],
+            },
+            max_widgets=2,
+        )
+        self.assertEqual(payload["widgets_count"], 3)
+        self.assertEqual(payload["truncated_widgets_count"], 1)
+        self.assertEqual(len(payload["widgets"]), 2)
+
+    def test_summarize_collection_tracks_truncation(self) -> None:
+        payload = summarize_collection(
+            [{"id": 1}, {"id": 2}, {"id": 3}],
+            item_mapper=lambda item: {"id": item["id"]},
+            limit=2,
+        )
+        self.assertEqual(payload["count"], 3)
+        self.assertEqual(payload["returned_count"], 2)
+        self.assertEqual(payload["truncated_count"], 1)
 
 
 class RedashClientCompatibilityTest(unittest.TestCase):
